@@ -9,9 +9,9 @@
  *
  * Per scene: cut the footage slice, size it to EXACTLY the scene's narration
  * duration (contract rule 4 — sync unit = scene), compose to a 1080×1920
- * portrait frame, and burn the scene's ≤5-word headline caption (white text on
- * a semi-opaque dark pill, safe-area inset — FR-011). Then concat all scenes,
- * mux the voiceover → H.264 yuv420p CRF 21 + AAC, +faststart.
+ * portrait frame, and burn the scene's FULL narration as a wrapped subtitle
+ * (white text on a semi-opaque dark pill, safe-area inset — FR-011). Then
+ * concat all scenes, mux the voiceover → H.264 yuv420p CRF 21 + AAC, +faststart.
  *
  * Layout notes (verified against recorded frames):
  *  - Playwright never UPSCALES: the mobile take's real content is 390×844 in
@@ -31,7 +31,13 @@ import ffmpegPath from 'ffmpeg-static';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCENES_DIR = path.join(HERE, 'output', 'scenes');
 const VOICEOVER = path.join(HERE, 'output', 'voiceover.mp3');
-const FINAL = path.join(HERE, 'output', 'vii-pass-marketing-9x16.mp4');
+/** LAYOUT=desktop assembles the 16:9 landscape cut from the desktop recording. */
+const DESKTOP = process.env.LAYOUT === 'desktop';
+const FINAL = path.join(
+  HERE,
+  'output',
+  DESKTOP ? 'vii-pass-marketing-16x9.mp4' : 'vii-pass-marketing-9x16.mp4',
+);
 /** Product logo (read-only use of the shipped frontend asset). */
 const LOGO = path.join(HERE, '..', '..', 'frontend', 'public', 'logo', 'full_logo.png');
 
@@ -64,17 +70,39 @@ async function durationOf(file) {
 }
 
 /**
- * Caption filter for a scene headline (FR-011): white text on a semi-opaque
- * dark pill, horizontally centered, safe-area inset from the BOTTOM (the top
- * hosts the app header and, in S7, the open user menu — the bottom band is
- * always free of UI in every scene). The text lives in a file so punctuation
- * never fights filter-graph escaping.
+ * Wrap the narration into lines of at most `maxChars` characters (word
+ * boundaries only) so drawtext renders a readable multi-line subtitle —
+ * drawtext has no wrapping of its own.
+ */
+function wrapCaption(text, maxChars) {
+  const lines = [];
+  let line = '';
+  for (const word of text.split(/\s+/)) {
+    if (line && line.length + 1 + word.length > maxChars) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = line ? `${line} ${word}` : word;
+    }
+  }
+  if (line) lines.push(line);
+  return lines.join('\n');
+}
+
+/**
+ * Subtitle filter for a scene's full narration (FR-011): white wrapped text on
+ * a semi-opaque dark pill, horizontally centered, safe-area inset from the
+ * BOTTOM (the top hosts the app header and, in S7, the open user menu — the
+ * bottom band is always free of UI in every scene). The text lives in a file
+ * so punctuation never fights filter-graph escaping.
  */
 function captionFilter(sceneId) {
+  // Landscape frames are shorter — tuck the pill closer to the bottom edge.
+  const bottomInset = DESKTOP ? 70 : 280;
   return (
     `drawtext=textfile=output/scenes/${sceneId}.caption.txt:fontfile='${FONT}'` +
-    ':fontsize=52:fontcolor=white:box=1:boxcolor=black@0.55:boxborderw=18' +
-    ':x=(w-text_w)/2:y=h-text_h-320'
+    ':fontsize=42:fontcolor=white:box=1:boxcolor=black@0.55:boxborderw=18:line_spacing=12' +
+    `:x=(w-text_w)/2:y=h-text_h-${bottomInset}`
   );
 }
 
@@ -93,6 +121,56 @@ async function buildMobileScene(scene, seconds, outFile) {
     '-vf', filter,
     '-an',
     '-c:v', 'libx264', '-preset', 'medium', '-crf', '21',
+    outFile,
+  ]);
+}
+
+/** Build one desktop scene (16:9 cut): 1280×720 content → 1920×1080. */
+async function buildDesktopMainScene(scene, seconds, outFile) {
+  const filter =
+    'crop=1280:720:0:0,scale=1920:1080:flags=lanczos,setsar=1,fps=30,format=yuv420p,' +
+    captionFilter(scene.id);
+  await ffmpeg([
+    '-y',
+    '-ss', String(scene.start),
+    '-i', path.join(SCENES_DIR, scene.file),
+    '-t', seconds.toFixed(3),
+    '-vf', filter,
+    '-an',
+    '-c:v', 'libx264', '-preset', 'medium', '-crf', '21',
+    outFile,
+  ]);
+}
+
+/**
+ * Build the S8 mobile-glimpse end-card for the 16:9 cut: light branded band,
+ * the phone clip framed at the LEFT, logo + tagline on the right half
+ * (mirror of the portrait cut's desktop end-card; never letterboxed).
+ */
+async function buildMobileGlimpseScene(scene, seconds, outFile) {
+  const filter =
+    `color=c=0xe8f0f8:s=1920x1080:r=30:d=${seconds.toFixed(3)}[bg];` +
+    // Phone clip scaled to fit the band height with a subtle frame line.
+    '[0:v]scale=-2:920,setsar=1,fps=30,' +
+    'pad=iw+8:ih+8:4:4:color=0x0b2a4a[clip];' +
+    '[1:v]scale=640:-1[logo];' +
+    '[bg][clip]overlay=340:80[t1];' +
+    // Right-half column (centered around x≈1346) hosts the logo + tagline.
+    '[t1][logo]overlay=1346-w/2:360[t2];' +
+    `[t2]drawtext=text='Try Vii Pass today.':fontfile='${FONT}'` +
+    ':fontsize=58:fontcolor=0x0b2a4a:x=1346-text_w/2:y=560,' +
+    `${captionFilter(scene.id)},format=yuv420p[out]`;
+  await ffmpeg([
+    '-y',
+    '-ss', String(scene.start),
+    '-i', path.join(SCENES_DIR, scene.file),
+    '-i', LOGO,
+    '-t', seconds.toFixed(3),
+    '-filter_complex', filter,
+    '-map', '[out]',
+    '-an',
+    '-c:v', 'libx264', '-preset', 'medium', '-crf', '21',
+    '-t', seconds.toFixed(3),
     outFile,
   ]);
 }
@@ -147,11 +225,19 @@ async function main() {
         `${scene.id}: footage ${footage.toFixed(2)}s < narration ${audio.seconds.toFixed(2)}s — re-record`,
       );
     }
-    await writeFile(path.join(SCENES_DIR, `${scene.id}.caption.txt`), audio.headline);
+    // Full narration as the on-screen subtitle (wrapped for the frame width).
+    await writeFile(
+      path.join(SCENES_DIR, `${scene.id}.caption.txt`),
+      wrapCaption(audio.narration ?? audio.headline, DESKTOP ? 70 : 42),
+    );
     const outFile = path.join(SCENES_DIR, `${scene.id}.proc.mp4`);
     console.log(`Building ${scene.id} [${scene.layout}] — ${audio.seconds.toFixed(2)}s…`);
     if (scene.layout === 'desktop-glimpse') {
       await buildDesktopScene(scene, audio.seconds, outFile);
+    } else if (scene.layout === 'mobile-glimpse') {
+      await buildMobileGlimpseScene(scene, audio.seconds, outFile);
+    } else if (scene.layout === 'desktop') {
+      await buildDesktopMainScene(scene, audio.seconds, outFile);
     } else {
       await buildMobileScene(scene, audio.seconds, outFile);
     }
@@ -180,9 +266,13 @@ async function main() {
   const runtime = await durationOf(FINAL);
   const bytes = (await stat(FINAL)).size;
   const drift = Math.abs(runtime - durations.totalSeconds);
-  console.log('\nFinal: output/vii-pass-marketing-9x16.mp4');
+  console.log(`\nFinal: output/${path.basename(FINAL)}`);
   console.log(`  runtime:    ${runtime.toFixed(2)}s (voiceover ${durations.totalSeconds.toFixed(2)}s, drift ${drift.toFixed(2)}s)`);
-  console.log('  resolution: 1080x1920 (9:16), H.264 yuv420p + AAC, +faststart');
+  console.log(
+    DESKTOP
+      ? '  resolution: 1920x1080 (16:9), H.264 yuv420p + AAC, +faststart'
+      : '  resolution: 1080x1920 (9:16), H.264 yuv420p + AAC, +faststart',
+  );
   console.log(`  size:       ${(bytes / 1024 / 1024).toFixed(1)} MB`);
   if (runtime < 50 || runtime > 70) {
     console.error('WARNING: runtime outside 50–70s (SC-001)');
