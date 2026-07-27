@@ -230,36 +230,65 @@ select,
   color: var(--color-text-muted);
 }
 
+/* Shared responsive brand-logo utility (feature 023).
+ * - Mobile (<sm): render single-symbol logo
+ * - Non-mobile: render full wordmark
+ *
+ * The component supplies a visible text fallback if imagery is unavailable.
+ */
+.brand-logo {
+  display: block;
+}
+
+.brand-logo__image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
 /* Full Vii Pass logo at the top of the auth cards (feature 018). Centered and
- * width-capped so the wide 1468×372 artwork stays inside the card padding down
- * to ~320px viewports; height:auto preserves aspect ratio. Bottom margin
- * matches the retired .auth-brand text rhythm. */
+ * width-capped so the wide 1468x372 artwork stays inside the card padding down
+ * to ~320px viewports; height:auto preserves aspect ratio. */
 .auth-logo {
   display: block;
   width: min(170px, 50%);
-  height: auto;
-
-  /* Negative top margin lifts the logo toward the card edge (the card's own
-   * padding otherwise leaves it floating too low); the larger bottom margin
-   * separates it clearly from the heading. */
   margin: -1rem auto var(--space-4);
+  height: auto;
 }
 
-/* Full logo inside the home-header brand link (feature 018): height-capped to
- * the existing navbar row so the header layout is pixel-unchanged. */
-.app-navbar .navbar-brand img {
-  display: block;
+/* Header surface: keep non-mobile layout unchanged; mobile icon becomes compact
+ * to avoid crowding tabs and menu controls. */
+.brand-logo--header {
   height: 32px;
+}
+
+.brand-logo--header .brand-logo__image {
+  height: 100%;
   width: auto;
 }
 
-/* Dark theme: CSS-only legibility treatment. A brightness boost lifts the
- * navy artwork to a vivid, readable blue on the medium-gray dark surfaces
- * while preserving the brand hues. (invert+hue-rotate was prototyped and
- * rejected — it darkened the light wordmark gradient; see research
- * Decision 4.) Artwork files are never modified (contract C5). */
-[data-bs-theme='dark'] .auth-logo,
-[data-bs-theme='dark'] .app-navbar .navbar-brand img {
+.brand-logo--fallback {
+  align-items: center;
+  color: var(--color-text);
+  display: inline-flex;
+  font-weight: 700;
+  justify-content: center;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.brand-logo--header.brand-logo--fallback {
+  height: 32px;
+}
+
+@media (max-width: 575.98px) {
+  .brand-logo--header {
+    height: 28px;
+  }
+}
+
+/* Dark theme: CSS-only legibility treatment. */
+[data-bs-theme='dark'] .brand-logo__image {
   filter: brightness(1.8);
 }
 
