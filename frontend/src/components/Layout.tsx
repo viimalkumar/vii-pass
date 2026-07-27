@@ -2,6 +2,7 @@ import type { ReactElement, ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { UserMenu } from './UserMenu';
 import { SectionTabs } from './SectionTabs';
+import { BrandLogo } from './BrandLogo';
 import { useVault } from '../vault/VaultContext';
 
 interface LayoutProps {
@@ -32,7 +33,7 @@ export function Layout({ children }: LayoutProps): ReactElement {
               className="navbar-brand fw-bold flex-shrink-0 me-0"
               onClick={refreshVault}
             >
-              <img src="/logo/full_logo.png" alt="Vii Pass" width={1468} height={372} />
+              <BrandLogo />
             </Link>
             <div className="flex-grow-1 overflow-hidden">
               <SectionTabs />
