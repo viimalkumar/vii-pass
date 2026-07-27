@@ -3,7 +3,8 @@
  *
  * Parses the scene table in `script.md`, synthesizes each scene's narration
  * with Microsoft Edge neural TTS (`msedge-tts`, voice en-US-AriaNeural — free
- * endpoint, no API key), pads a short breath of silence after each scene,
+ * endpoint, no API key), pads a short breath of silence BEFORE and after each
+ * scene (the lead-in stops the voice from cutting in right on the scene cut),
  * concatenates the scenes into `output/voiceover.mp3`, and writes
  * `output/scenes/durations.json` (per-scene + total seconds) for the video
  * assembler (contract rule 4: sync unit = scene).
@@ -32,6 +33,8 @@ const VOICE = process.env.VOICE || 'en-US-AriaNeural';
  * sounding natural (script wording unchanged — SC-001).
  */
 const RATE = '+10%';
+/** Leading silence per scene: lets each scene settle on screen before the voice starts. */
+const SCENE_LEAD_SECONDS = 0.5;
 /** Trailing silence per scene (breathing room between scenes), seconds. */
 const SCENE_PAD_SECONDS = 0.35;
 
@@ -108,16 +111,23 @@ async function main() {
     const raw = path.join(SCENES_DIR, `${scene.id}.raw.mp3`);
     const padded = path.join(SCENES_DIR, `${scene.id}.mp3`);
     await synthesize(scene.ttsText, raw);
-    // Re-encode with a short trailing pad: breathing room between scenes and a
-    // consistent bitstream for the concat step.
+    // Re-encode with a leading gap (voice never starts on the scene cut) and a
+    // short trailing pad, giving a consistent bitstream for the concat step.
     await ffmpeg([
       '-y', '-i', raw,
-      '-af', `apad=pad_dur=${SCENE_PAD_SECONDS}`,
+      '-af', `adelay=${Math.round(SCENE_LEAD_SECONDS * 1000)}:all=1,apad=pad_dur=${SCENE_PAD_SECONDS}`,
       '-c:a', 'libmp3lame', '-q:a', '4',
       padded,
     ]);
     const seconds = await durationOf(padded);
-    entries.push({ id: scene.id, headline: scene.headline, file: `${scene.id}.mp3`, seconds });
+    entries.push({
+      id: scene.id,
+      headline: scene.headline,
+      // Full narration (backticks stripped) — burned in as the scene subtitle.
+      narration: scene.narration.replaceAll('`', ''),
+      file: `${scene.id}.mp3`,
+      seconds,
+    });
     console.log(`  ${scene.id}: ${seconds.toFixed(2)}s — "${scene.headline}"`);
   }
 

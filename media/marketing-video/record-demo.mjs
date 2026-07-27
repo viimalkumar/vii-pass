@@ -27,6 +27,12 @@ const SCENES_DIR = path.join(HERE, 'output', 'scenes');
 const BASE_URL = 'http://localhost:5173';
 const USERNAME = 'viidemo';
 const PASSWORD = 'demo123';
+/**
+ * LAYOUT=desktop flips the recording: S1–S7 in the desktop layout (for the
+ * 16:9 landscape cut) with S8 as a framed MOBILE glimpse — the mirror image
+ * of the default 9:16 mobile-first recording.
+ */
+const DESKTOP = process.env.LAYOUT === 'desktop';
 /** Extra footage per scene beyond the narration length (trim headroom). */
 const SCENE_BUFFER_S = 0.7;
 /** Typing cadence for on-camera keystrokes (ms/char) — visibly human. */
@@ -89,13 +95,20 @@ class SceneClock {
   }
 }
 
-/** Record the continuous mobile take covering S1–S7. */
+/** Record the continuous take covering S1–S7 (mobile by default, desktop in LAYOUT=desktop). */
 async function recordMobileSession(browser, need) {
-  const context = await browser.newContext({
-    viewport: { width: 390, height: 844 },
-    deviceScaleFactor: 2,
-    recordVideo: { dir: SCENES_DIR, size: { width: 780, height: 1688 } },
-  });
+  const context = await browser.newContext(
+    DESKTOP
+      ? {
+          viewport: { width: 1280, height: 720 },
+          recordVideo: { dir: SCENES_DIR, size: { width: 1280, height: 720 } },
+        }
+      : {
+          viewport: { width: 390, height: 844 },
+          deviceScaleFactor: 2,
+          recordVideo: { dir: SCENES_DIR, size: { width: 780, height: 1688 } },
+        },
+  );
   const page = await context.newPage();
   const clock = new SceneClock();
 
@@ -176,7 +189,8 @@ async function recordMobileSession(browser, need) {
   const elapsedAtClose = clock.total();
   const video = page.video();
   await context.close();
-  const file = path.join(SCENES_DIR, 'mobile-session.webm');
+  const sessionName = DESKTOP ? 'desktop-session.webm' : 'mobile-session.webm';
+  const file = path.join(SCENES_DIR, sessionName);
   await video.saveAs(file);
   await video.delete();
 
@@ -186,19 +200,27 @@ async function recordMobileSession(browser, need) {
   const leadIn = Math.max(0, videoSeconds - elapsedAtClose);
   return clock.marks.map((mark) => ({
     id: mark.id,
-    layout: 'mobile',
-    file: 'mobile-session.webm',
+    layout: DESKTOP ? 'desktop' : 'mobile',
+    file: sessionName,
     start: Math.max(0, mark.start + leadIn),
     end: mark.end + leadIn,
   }));
 }
 
-/** Record the S8 desktop-glimpse take (sign-in happens BEFORE the scene mark). */
+/** Record the S8 glimpse take of the OTHER layout (sign-in happens BEFORE the scene mark). */
 async function recordDesktopGlimpse(browser, need) {
-  const context = await browser.newContext({
-    viewport: { width: 1280, height: 800 },
-    recordVideo: { dir: SCENES_DIR, size: { width: 1280, height: 800 } },
-  });
+  const context = await browser.newContext(
+    DESKTOP
+      ? {
+          viewport: { width: 390, height: 844 },
+          deviceScaleFactor: 2,
+          recordVideo: { dir: SCENES_DIR, size: { width: 390, height: 844 } },
+        }
+      : {
+          viewport: { width: 1280, height: 800 },
+          recordVideo: { dir: SCENES_DIR, size: { width: 1280, height: 800 } },
+        },
+  );
   const page = await context.newPage();
   const clock = new SceneClock();
 
@@ -220,7 +242,8 @@ async function recordDesktopGlimpse(browser, need) {
   const elapsedAtClose = clock.total();
   const video = page.video();
   await context.close();
-  const file = path.join(SCENES_DIR, 'desktop-glimpse.webm');
+  const glimpseName = DESKTOP ? 'mobile-glimpse.webm' : 'desktop-glimpse.webm';
+  const file = path.join(SCENES_DIR, glimpseName);
   await video.saveAs(file);
   await video.delete();
 
@@ -230,8 +253,8 @@ async function recordDesktopGlimpse(browser, need) {
   return [
     {
       id: 'S8',
-      layout: 'desktop-glimpse',
-      file: 'desktop-glimpse.webm',
+      layout: DESKTOP ? 'mobile-glimpse' : 'desktop-glimpse',
+      file: glimpseName,
       start: Math.max(0, mark.start + leadIn),
       end: mark.end + leadIn,
     },
@@ -252,9 +275,9 @@ async function main() {
   };
 
   const browser = await chromium.launch();
-  console.log('Recording mobile session (S1–S7)…');
+  console.log(`Recording ${DESKTOP ? 'desktop' : 'mobile'} session (S1–S7)…`);
   const mobileClips = await recordMobileSession(browser, need);
-  console.log('Recording desktop glimpse (S8)…');
+  console.log(`Recording ${DESKTOP ? 'mobile' : 'desktop'} glimpse (S8)…`);
   const desktopClips = await recordDesktopGlimpse(browser, need);
   await browser.close();
 
