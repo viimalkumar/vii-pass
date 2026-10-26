@@ -14,9 +14,9 @@
   },
   "dependencies": {
     "@vii-pass/shared": "*",
-    "hono": "^4.5.8",
+    "hono": "^4.13.14",
     "mongodb": "^6.8.0",
-    "zod": "^3.23.8"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240821.0",
