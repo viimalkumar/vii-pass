@@ -37,7 +37,7 @@ const chordFieldSchema = z.object({
 
 /** Required display title: trimmed, 1–100 chars (uniqueness enforced in the service). */
 const titleField = z
-  .string({ required_error: 'Title is required.' })
+  .string({ error: 'Title is required.' })
   .trim()
   .min(1, 'Title is required.')
   .max(100, 'Title must be 100 characters or fewer.');
